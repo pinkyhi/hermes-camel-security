@@ -12,6 +12,8 @@ Indirect prompt injection is the standing open problem of tool-using agents: the
 
 The net effect, by construction rather than by vigilance: **untrusted data can influence values, but cannot redirect control flow or reach a dangerous sink.**
 
+> **Doesn't Hermes already gate dangerous commands?** The built-in guard covers terminal commands with linux-shaped patterns. The gate layer here fills what it misses — Windows/PowerShell command forms (`iex`, `-EncodedCommand`, `Remove-Item -Recurse`), plain `git push` / `gh` writes, and *non-terminal* actions (file writes to secret paths, MCP exec/desktop/takeover tools) — and deliberately audit-onlies anything the built-in already prompts for, so nothing double-prompts. It also isn't optional scaffolding: the quarantine block, the interpreter's `approve` escalations, and the `quarantine/` read protection all run on the gate's hook and approval plumbing.
+
 ## Install
 
 ```
@@ -111,6 +113,10 @@ python test_offline.py
 ```
 
 224 offline checks — classifier shapes (Windows-aware: Git Bash + PowerShell), gate flow, quarantine matching (including MCP-composed tool names), interpreter plan validation, capability propagation, sink policy, error sanitization.
+
+## Extending
+
+New dangerous-command shapes, new tools/categories to gate, new untrusted sources to quarantine, new interpreter ops and sink policies — the extension points and a recipe for each are in [EXTENDING.md](EXTENDING.md), together with the invariants any change must keep (fail-open for availability / fail-closed for policy, taint inheritance, no raw tainted bytes to the planner, MCP naming-shape matching).
 
 ## Relation to upstream work
 
