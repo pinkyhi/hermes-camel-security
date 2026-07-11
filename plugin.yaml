@@ -1,5 +1,5 @@
 name: camel-security
-version: "0.3.0"
+version: "0.4.0"
 manifest_version: 1
 description: >-
   Prompt-injection defense for Hermes, as a pure plugin (no core changes):
@@ -8,6 +8,9 @@ description: >-
   (3) plan_execute — a CaMeL-lite plan-DAG interpreter with capability/taint
   tracking and a capability-aware sink policy, so untrusted web content can
   influence values but can never redirect control or reach a dangerous sink.
+  Ships generic defaults; site-specific recognition (your MCP servers, secret
+  files, GUI tools, extra command rules) is configured in
+  <HERMES_HOME>/camel-security.yaml — see CONFIGURATION.md.
 author: Ivan Vladymyrov
 license: MIT
 hooks:

@@ -933,10 +933,12 @@ def _note_empty_search(rctx, step_id: str) -> None:
 
 # ── sink policy (§6) ──────────────────────────────────────────────────────────
 # Sensitive/secret/synced paths — writing TAINTED content here is denied outright
-# (exfil target or a file later trusted). Mirrors the gate's _SENSITIVE_PATH_RE.
+# (exfil target or a file later trusted). This is only the standalone DEFAULT: at
+# register() the gate injects its own matcher (defaults + camel-security.yaml
+# `sensitive_paths:` extensions), so site-specific secret paths bind both layers.
 _SENSITIVE_PATH_RE = re.compile(
     r"\.env|\.ssh|id_rsa|credential|secret|auth\.json|\.pem|\.key\b|"
-    r"config\.ya?ml|\.codex|token|authorized_keys", re.I)
+    r"config\.ya?ml|token|authorized_keys", re.I)
 
 # ── file provenance: the quarantine/ LOCATION convention (Phase F slice 1) ────
 # The folder IS the taint registry: tainted plan output is forced under

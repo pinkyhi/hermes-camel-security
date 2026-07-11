@@ -1455,5 +1455,63 @@ os.environ.pop("SECURITY_GATE_Q_TOOLSETS", None)
 check("gate: takeover act tool NOT swept up by the web match (no over-match)",
       (gmod._classify("mcp_takeover_click_element", {}) or ("",))[0] != "web_quarantined")
 
+# ── 12. user-extensible recognition: camel-security.yaml + env appends ────────
+check("rules: takeover/desktop defaults are EMPTY (site-specific, not shipped)",
+      gmod._TAKEOVER_ACT == set() and gmod._UIA_ACT == set()
+      and gmod._classify("mcp_takeover_click_element", {}) is None)
+
+os.environ["SECURITY_GATE_TAKEOVER_TOOLS"] = "click_element,type_text"
+gmod._rebuild_rules()
+check("rules: env append gates takeover tools (all MCP name shapes)",
+      (gmod._classify("mcp_takeover_click_element", {}) or ("",))[0] == "takeover_act"
+      and (gmod._classify("takeover__type_text", {}) or ("",))[0] == "takeover_act")
+os.environ.pop("SECURITY_GATE_TAKEOVER_TOOLS", None)
+
+_yaml_path = os.path.join(os.environ["HERMES_HOME"], "camel-security.yaml")
+with open(_yaml_path, "w", encoding="utf-8") as _f:
+    _f.write(
+        "cmd_rules:\n"
+        "  - category: destructive\n"
+        "    pattern: '\\bkubectl\\s+(delete|drain)\\b'\n"
+        "  - category: broken\n"
+        "    pattern: '[unclosed'\n"
+        "secret_files:\n"
+        "  - 'google_token'\n"
+        "sensitive_paths:\n"
+        "  - '\\.kube[/\\\\]'\n"
+        "web_mcp_prefixes: ['rss_']\n"
+        "desktop_act_tools: [invoke_element]\n"
+        "toolset_tools:\n"
+        "  web: [my_search]\n"
+    )
+gmod._rebuild_rules()
+os.environ["SECURITY_GATE_Q_TOOLSETS"] = "web"
+check("rules: yaml cmd_rule classifies (and wins over defaults by position)",
+      (gmod._classify("terminal", {"command": "kubectl delete pod x"}) or ("",))[0] == "destructive")
+check("rules: invalid user regex skipped, defaults intact (fail-open)",
+      (gmod._classify("terminal", {"command": "git push"}) or ("",))[0] == "push")
+check("rules: yaml secret_files extend secret_read",
+      (gmod._classify("terminal", {"command": "cat google_token.json"}) or ("",))[0] == "secret_read")
+check("rules: yaml sensitive_paths extend the write_file secret matcher",
+      (gmod._classify("write_file", {"path": "C:/u/.kube/config2"}) or ("",))[0] == "secret_file")
+check("rules: yaml web_mcp_prefixes quarantine a new ingest server",
+      (gmod._classify("mcp_rss_fetch_feed", {}) or ("",))[0] == "web_quarantined")
+check("rules: yaml toolset_tools extend the web toolset",
+      (gmod._classify("my_search", {}) or ("",))[0] == "web_quarantined")
+check("rules: yaml desktop_act_tools gate a UIA-style tool",
+      (gmod._classify("mcp_desktop_invoke_element", {}) or ("",))[0] == "desktop_act")
+_n1 = len(gmod._CMD_RULES)
+gmod._rebuild_rules()
+check("rules: rebuild is repeatable (no duplicate accumulation)",
+      len(gmod._CMD_RULES) == _n1 == 9)  # 7 defaults + 1 user rule + 1 secret_files rule
+check("rules: gate shares its sensitive matcher with interp sinks",
+      gmod._SENSITIVE_PATH_RE.search("C:/u/.kube/config2") is not None)
+os.environ.pop("SECURITY_GATE_Q_TOOLSETS", None)
+os.remove(_yaml_path)
+gmod._rebuild_rules()
+check("rules: removing the yaml restores pristine defaults",
+      gmod._classify("terminal", {"command": "kubectl delete pod x"}) is None
+      and gmod._UIA_ACT == set())
+
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
 sys.exit(1 if FAIL else 0)

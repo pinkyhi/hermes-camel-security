@@ -32,6 +32,20 @@ SECURITY_GATE_Q_TOOLSETS=web            # add ",browser" to quarantine playwrigh
 
 Requires a Hermes version with plugin hooks (`pre_tool_call`, `post_tool_call`, `pre_llm_call`) and `ctx.register_tool`.
 
+The defaults are generic. To teach the gate *your* environment — your MCP servers, your secret files, your GUI-automation tools, extra command rules — drop a `camel-security.yaml` next to your profile config (append-only, fail-open):
+
+```yaml
+# <HERMES_HOME>/camel-security.yaml
+secret_files: ['google_token', 'wallet\.dat']
+web_mcp_prefixes: ['rss_']          # your web-ingest MCP servers → quarantined
+takeover_act_tools: [click_xy, type_text]   # blind GUI automation → per-action approval
+cmd_rules:
+  - category: destructive
+    pattern: '\bkubectl\s+(delete|drain)\b'
+```
+
+Full schema, env knobs, and recipes: **[CONFIGURATION.md](CONFIGURATION.md)**.
+
 ## How the interpreter works
 
 ```
@@ -78,33 +92,9 @@ Progress is mirrored live to the owner's chat (`📋` fenced blocks, per-op args
 - **File provenance — the `quarantine/` location convention.** Tainted `write_file` output is forced under `<HERMES_HOME>/quarantine/`; the folder *is* the taint registry. Direct reads of quarantine paths (and of the audit logs themselves) by the top-level agent are plan-only; the `read_file` op re-taints their content.
 - **Fail-open for availability, fail-closed for policy.** An internal plugin error never breaks the agent's turn; an unknown tainted sink category denies by default.
 
-## Configuration reference
+## Configuration
 
-Gate layer (on by default):
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `SECURITY_GATE_CATEGORIES` | `push,egress,exec,secret_read,destructive,config,secret_file,desktop_act,takeover_act` | Which categories are gated (vs audit-only) |
-| `SECURITY_GATE_NO_CACHE` | `takeover_act` | Categories that re-prompt on every call (never session-cache an approval) |
-| `SECURITY_GATE_NO_BLOCK` | off | Audit-only mode — never gate (rollback switch) |
-| `SECURITY_GATE_STRICT` | off | In non-gateway contexts (no approval channel): block instead of allow+audit |
-
-Quarantine + interpreter (opt-in):
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `SECURITY_GATE_WEB_QUARANTINE` | off | Master switch for the web-ingest quarantine (1A + 1B) |
-| `SECURITY_GATE_Q_TOOLSETS` | `web` | Quarantined toolsets; add `browser` for playwright/chrome-devtools |
-| `SECURITY_GATE_INTERPRETER` | off | Register the `plan_execute` tool (the sole research path when quarantined) |
-| `INTERP_OP_TIMEOUT` | 60 | Hard per-op timeout, seconds |
-| `INTERP_MAX_WORKERS` | 4 | Step/map parallelism ceiling |
-| `INTERP_MAP_MAX` | 200 | Hard ceiling on `map` fan-out (data can't drive cost) |
-| `INTERP_Q_MAX_TOKENS` | 800 | Q extraction output budget |
-| `INTERP_Q_RETRIES` / `INTERP_Q_RETRY_BACKOFF` | 2 / 2 | Q retries on transient provider errors |
-| `INTERP_RESEARCH_WORKERS` | = MAX_WORKERS | Parallelism of the `q_research` fetch+extract fan-out |
-| `INTERP_GOAL_MAX` / `INTERP_CTX_MAX` | 500 / 1500 | Intake caps (chars) on the plan's trusted goal/context |
-| `INTERP_WATCH` / `INTERP_WATCH_BATCH` / `INTERP_WATCH_EMOJI` | 1 / 3 / 📋 | Live progress mirroring to the owner chat |
-| `INTERP_SINK_<CATEGORY>` | — | Override a tainted sink decision: `allow` / `deny` / `approve` |
+Two per-profile files: `.env` for switches and knobs (categories, strictness, interpreter limits), `camel-security.yaml` for site-specific recognition (your MCP servers, secret files, GUI tools, command rules — append-only over generic defaults). Everything, with recipes: **[CONFIGURATION.md](CONFIGURATION.md)**.
 
 ## Tests
 
@@ -127,7 +117,7 @@ New dangerous-command shapes, new tools/categories to gate, new untrusted source
 
 - This is defense-in-depth, not a proof. The gate classifier is pattern-based (bypassable by construction — it's a speed bump plus audit trail); the principled guarantees live in the interpreter path, and only for flows routed through it.
 - The plan is written by the same LLM that talks to the user — the guarantee is that it writes the plan **before** seeing untrusted data, not that the LLM is trustworthy in general.
-- Sink categories and web-ingest tool sets are curated lists; new tools need classifying (unknown tainted sinks deny by default).
+- Sink categories and web-ingest tool sets are curated lists; new tools need classifying — via [`camel-security.yaml`](CONFIGURATION.md), no code required — and until then an unknown tainted sink denies by default, but an unknown *source* ingests as trusted. Keep the lists current with your tool fleet.
 
 ## License
 

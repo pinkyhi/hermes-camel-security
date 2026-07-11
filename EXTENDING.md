@@ -1,13 +1,13 @@
 # Extending camel-security
 
-The plugin is built to be extended in three places: the **gate** (what counts as a sensitive action), the **quarantine** (what counts as an untrusted source), and the **interpreter** (what operations plans can use, and what sinks are allowed to do with tainted data). This document maps the extension points and gives a recipe for each.
+**Most extension is configuration, not code.** New command rules, new tools/servers to gate or quarantine, new secret files — all of that is `camel-security.yaml` + env appends, covered in [CONFIGURATION.md](CONFIGURATION.md). This document is for *code* extension: changing what defaults ship, adding interpreter operations, and adding sink categories/policies.
 
 ## Map of the moving parts
 
 | What | Where | Mechanism |
 |---|---|---|
-| Terminal command rules | `__init__.py` → `_CMD_RULES` | Ordered `(category, regex)` tuple — first match wins |
-| Tool-name → category tables | `__init__.py` → `_TERMINAL_TOOLS`, `_MSG_TOOLS`, `_FILE_WRITE_TOOLS`, `_UIA_ACT`, `_TAKEOVER_ACT`, `_MCP_EXEC_TOOLS`, `_MEDIA_READ_TOOLS` | Set membership, matched via `_suffix_match()` (MCP-shape robust) |
+| Terminal command rules | `__init__.py` → `_CMD_RULES` defaults; user rules via `camel-security.yaml` | Ordered `(category, regex)` tuple — first match wins; user rules prepended by `_rebuild_rules()` |
+| Tool-name → category tables | `__init__.py` → `_TERMINAL_TOOLS`, `_MSG_TOOLS`, `_FILE_WRITE_TOOLS`, `_UIA_ACT`, `_TAKEOVER_ACT`, `_MCP_EXEC_TOOLS`, `_MEDIA_READ_TOOLS` defaults; extended by yaml/env in `_rebuild_rules()` | Set membership, matched via `_suffix_match()` (MCP-shape robust) |
 | Which categories gate (vs audit-only) | `__init__.py` → `_GATED_DEFAULT` | Overridable per profile: `SECURITY_GATE_CATEGORIES` |
 | Which categories never cache an approval | `__init__.py` → `_NO_CACHE_DEFAULT` | Overridable: `SECURITY_GATE_NO_CACHE` |
 | Untrusted web-ingest sources | `__init__.py` → `_TOOLSET_TOOLS`, `_WEB_MCP_PREFIXES`, `_WEB_MCP_TOOLS` | Toolset selection via `SECURITY_GATE_Q_TOOLSETS` |
@@ -28,24 +28,15 @@ The plugin is built to be extended in three places: the **gate** (what counts as
 5. **No double-prompting.** If Hermes' built-in guard (`detect_dangerous_command`/hardline) already gates a command shape, classify it audit-only here.
 6. **Over-matching a *source* is safe; under-matching is not.** Wrongly quarantining a web-ish tool costs convenience (it's still usable via a plan). Missing one is a hole. Bias accordingly — and the reverse holds for *sinks*: an over-broad sink rule only adds prompts, an under-broad one silently allows.
 
-## Recipe: gate a new dangerous terminal-command shape
+## Recipe: change what ships as a DEFAULT
 
-1. Add `("category", re.compile(...))` to `_CMD_RULES`. **Order matters** — first match wins, so put specific/dangerous rules above broad/audit-only ones (that's why `secret_read` sits above `config`, and `script_egress` is last).
-2. Cover both shell dialects — Git Bash *and* PowerShell forms (`rm -rf` **and** `Remove-Item -Recurse -Force`). This plugin exists partly because linux-only patterns miss half of Windows.
-3. If the category is new, decide: gated (add to `_GATED_DEFAULT`) or audit-only (leave it out — it still lands in `security-audit.jsonl`). Start audit-only if you're unsure about false-positive rate; promote after watching the log.
-4. Add matcher tests to `test_offline.py`: positive forms, near-miss negatives, and an overlap check if your rule could shadow / be shadowed by a neighbour.
+Site-specific entries belong in `camel-security.yaml` ([CONFIGURATION.md](CONFIGURATION.md)) — a default should only grow when a rule/tool is generic for *every* Hermes install (a new common secret-file name, a widely-used MCP vendor prefix, a missing PowerShell dialect of an existing rule).
 
-## Recipe: gate a new tool (non-terminal) or a new action category
-
-1. Add the tool's **base name** to an existing set (`_FILE_WRITE_TOOLS`, `_MCP_EXEC_TOOLS`, …) — or create a new set + a new branch in `_classify()`. Mind the dispatch order in `_classify()`: it is the precedence policy (e.g. quarantine-reads are checked before file-writes so `patch` on a quarantined file classifies as a *read*).
-2. New category → decide gated vs audit-only (`_GATED_DEFAULT`) and whether approvals may session-cache (`_NO_CACHE_DEFAULT`). Per-action tools where each call is independently dangerous (the takeover pattern) belong in no-cache.
-3. If the tool comes from an MCP server, test all three naming shapes (`tool`, `server__tool`, `mcp_server_tool`) — `_suffix_match()` handles them, direct membership checks don't.
-
-## Recipe: quarantine a new untrusted source
-
-New web-ish built-in toolset → add a `_TOOLSET_TOOLS["<toolset>"]` entry (users opt in via `SECURITY_GATE_Q_TOOLSETS`). New MCP server that ingests external content (RSS, mail, scraping…) → add its vendor prefix to `_WEB_MCP_PREFIXES` (containment match: covers current *and future* tools of that server). One-off tools → `_WEB_MCP_TOOLS`.
-
-Then give the interpreter a way to reach that content safely — usually nothing to do (`web_fetch`/`read_file` already cover URL/file shapes), but a genuinely new transport needs a new read op (next recipe) or the quarantine just makes the source unusable.
+1. Command rules: add to `_CMD_RULES`. **Order matters** — first match wins (that's why `secret_read` sits above `config` and `script_egress` is last; user yaml rules are prepended before all of them). Cover both shell dialects — Git Bash *and* PowerShell (`rm -rf` **and** `Remove-Item -Recurse -Force`).
+2. Tool sets: add the **bare** tool name to the right `_DEFAULT`-role set; `_suffix_match()` covers the MCP naming shapes. Keep `_UIA_ACT`/`_TAKEOVER_ACT` defaults empty — GUI-automation fleets are inherently site-specific.
+3. New category → decide gated vs audit-only (`_GATED_DEFAULT`) and whether approvals may session-cache (`_NO_CACHE_DEFAULT`). Per-action tools where each call is independently dangerous (the takeover pattern) belong in no-cache. New branches in `_classify()` mind the dispatch order — it is the precedence policy (quarantine-reads before file-writes, so `patch` on a quarantined file classifies as a *read*).
+4. All default tables are snapshotted by `_rebuild_rules()` at first run (`_PRISTINE`) and merged with yaml/env on every rebuild — new tables must join that snapshot/merge, or user config will silently stop applying to them.
+5. Tests: positive forms, near-miss negatives, all three MCP naming shapes, and an overlap check if a rule could shadow a neighbour.
 
 ## Recipe: add an interpreter read op
 

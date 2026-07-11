@@ -30,6 +30,11 @@ Env switches:
                              (each such category re-prompts every call). Unset =>
                              code default {takeover_act}. Empty / 'none' / 'off' /
                              '-' => NO no-cache categories (everything cacheable).
+
+Site-specific recognition (your MCP servers, secret files, GUI-automation tools,
+extra command rules) lives OUTSIDE the code: <HERMES_HOME>/camel-security.yaml
+plus SECURITY_GATE_{TAKEOVER,DESKTOP,EXEC,WEB_MCP}_TOOLS / _WEB_MCP_PREFIXES env
+appends — merged over the generic defaults by _rebuild_rules(). See CONFIGURATION.md.
 """
 from __future__ import annotations
 
@@ -140,6 +145,12 @@ def _audit_path() -> str:
 
 
 # ── classifier ───────────────────────────────────────────────────────────────
+# Everything below is a GENERIC default. Site-specific recognition — your MCP
+# servers, your crown-jewel files, your GUI-automation tools — is merged in from
+# <HERMES_HOME>/camel-security.yaml and SECURITY_GATE_* env appends by
+# _rebuild_rules() (bottom of this section). See CONFIGURATION.md.
+_SECRET_READ_CMDS = r"\b(cat|type|more|less|head|tail|gc|get-content|select-string|findstr|cp|copy|copy-item)\b[^\n]*"
+_SECRET_FILES_DEFAULT = r"auth\.json|id_rsa|\.ssh[/\\]|client_secret|\.pem\b|\.key\b"
 _CMD_RULES: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
     ("push",        re.compile(r"\bgit\s+push\b|\bgh\s+(pr|release|repo|api|secret|workflow|run)\b")),
     ("egress",      re.compile(r"\b(curl|wget|invoke-webrequest|invoke-restmethod|iwr|irm|start-bitstransfer|bitsadmin|certutil|scp|rsync|ncat|nc|ftp|tftp)\b|net\.webclient|downloaddata|downloadstring|downloadfile")),
@@ -150,7 +161,8 @@ _CMD_RULES: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
     # 0.3 secret reads (crown-jewel): cat/type/Get-Content/cp of high-value secret
     # files. Before `config` so .ssh reads gate here, not as audit-only. .env stays
     # config/audit (agents read it routinely) — speed-bump, bypassable (python open()).
-    ("secret_read", re.compile(r"\b(cat|type|more|less|head|tail|gc|get-content|select-string|findstr|cp|copy|copy-item)\b[^\n]*(auth\.json|id_rsa|\.ssh[/\\]|google_token|google_client_secret|client_secret|\.codex|\.pem\b|\.key\b)")),
+    # Site-specific secret files: `secret_files:` in camel-security.yaml.
+    ("secret_read", re.compile(_SECRET_READ_CMDS + "(" + _SECRET_FILES_DEFAULT + ")")),
     ("destructive", re.compile(r"\brm\s+-[a-z]*[rf]|remove-item\b[^\n]*-(recurse|force)|\brmdir\s+/s|\bdel\s+/|\bgit\s+(reset\s+--hard|push\s+(--force|-f)|clean\s+-[a-z]*f|branch\s+-d)\b|\bdd\s+if=|\bmkfs|\bformat\s+[a-z]:|truncate\s+table|drop\s+(table|database)")),
     ("config",      re.compile(r"\.env\b|\bschtasks\b|\breg\s+(add|delete)\b|new-scheduledtask|\bnetsh\b|\bbcdedit\b|\.ssh/|authorized_keys")),
     # 0.2 script-based network egress (urllib/requests/etc.) — AUDIT-ONLY (NOT in
@@ -201,21 +213,18 @@ _MCP_EXEC_TOOLS = {
     "execute_code", "execute_code_async", "run_code", "run_code_unsafe",
     "run_python", "eval_code",
 }
-_SENSITIVE_PATH_RE = re.compile(r"\.env|\.ssh|id_rsa|credential|secret|auth\.json|\.pem|\.key\b|config\.ya?ml|\.codex|token", re.I)
-_UIA_ACT = {
-    "invoke_element", "set_text", "set_element_value", "toggle_element", "select_element",
-    "add_to_selection", "remove_from_selection", "clear_selection", "select_text",
-    "expand_collapse_element", "scroll_element", "scroll_element_into_view", "set_scroll_percent",
-    "set_range_value", "set_view", "set_focus", "move_element", "resize_element",
-    "rotate_element", "dock_element", "window_action", "launch_application",
-    "start_synchronized_input", "cancel_synchronized_input", "wait_for_window_input_idle",
-}
-# Act tools from the takeover MCP server (bin/takeover_mcp.py). capture_screen and
-# stop_service are intentionally absent — perception + teardown are not gated.
-_TAKEOVER_ACT = {
-    "click_element", "click_xy", "double_click", "right_click",
-    "type_text", "press_key", "scroll", "move",
-}
+_SENSITIVE_PATH_DEFAULT = r"\.env|\.ssh|id_rsa|credential|secret|auth\.json|\.pem|\.key\b|config\.ya?ml|token|authorized_keys"
+_SENSITIVE_PATH_RE = re.compile(_SENSITIVE_PATH_DEFAULT, re.I)
+# desktop_act — GUI-mutation tools of YOUR desktop-automation MCP server (UIA-style:
+# invoke/set_text/select/...). Session-cached approval (one prompt per session). Empty
+# by default — name your server's tools in camel-security.yaml `desktop_act_tools:` or
+# SECURITY_GATE_DESKTOP_TOOLS.
+_UIA_ACT: set = set()
+# takeover_act — per-action approval, never cached: blind screen-coordinate automation
+# (PyAutoGUI-style click/type). The human prompt on EVERY action is the whole point.
+# Empty by default — `takeover_act_tools:` in camel-security.yaml or
+# SECURITY_GATE_TAKEOVER_TOOLS. Perception/teardown tools (screenshot, stop) don't belong here.
+_TAKEOVER_ACT: set = set()
 # media_ingest (owner-in-the-loop): top-level P ingesting a media/doc file that is
 # NOT an inbound owner-attachment — i.e. one Hermes autonomously fetched, or a working
 # file it produced. Owner-attachments live in the inbound media cache (cache/{documents,
@@ -251,6 +260,124 @@ _QUARANTINE_PATH_RE = re.compile(r"[/\\]quarantine[/\\]", re.I)
 # plan-only for top-level P (subagents exempt; enforced only while the interpreter is ON).
 _INTERNAL_LOG_RE = re.compile(r"(?:interp-audit|security-audit)\.jsonl", re.I)
 _QUARANTINE_READ_TOOLS = _MEDIA_READ_TOOLS | {"search_files", "patch", "edit_file"}
+
+
+# ── user-extensible recognition (CONFIGURATION.md) ────────────────────────────
+# The tables above are generic defaults. _rebuild_rules() merges in site-specific
+# entries from <HERMES_HOME>/camel-security.yaml and SECURITY_GATE_* env appends.
+# APPEND-ONLY: user config adds recognition, never removes defaults (loosen via
+# SECURITY_GATE_CATEGORIES / SECURITY_GATE_NO_BLOCK instead). Fail-open: an
+# absent/broken config or an invalid user regex leaves the defaults intact.
+_PRISTINE: Optional[dict] = None  # default-table snapshot → rebuilds are repeatable
+
+
+def _env_names(var: str) -> set:
+    return {t.strip() for t in os.environ.get(var, "").split(",") if t.strip()}
+
+
+def _re_ok(p: str) -> bool:
+    try:
+        re.compile(p)
+        return True
+    except re.error:
+        return False
+
+
+def _user_rules() -> dict:
+    """<HERMES_HOME>/camel-security.yaml parsed to a dict — {} if absent/unreadable."""
+    try:
+        import yaml
+        p = os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"),
+                         "camel-security.yaml")
+        if not os.path.exists(p):
+            return {}
+        with open(p, encoding="utf-8") as f:
+            d = yaml.safe_load(f) or {}
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _rebuild_rules() -> None:
+    """(Re)compose the runtime recognition tables: pristine defaults ∪ yaml ∪ env.
+    Runs at import (config read once per process — restart to apply changes, same
+    as .env). Tests call it again after pointing HERMES_HOME/env elsewhere."""
+    global _PRISTINE, _CMD_RULES, _SENSITIVE_PATH_RE, _WEB_MCP_PREFIXES
+    if _PRISTINE is None:
+        _PRISTINE = {
+            "cmd_rules": _CMD_RULES,
+            "toolsets": {k: frozenset(v) for k, v in _TOOLSET_TOOLS.items()},
+            "web_mcp_tools": frozenset(_WEB_MCP_TOOLS),
+            "exec": frozenset(_MCP_EXEC_TOOLS),
+            "uia": frozenset(_UIA_ACT),
+            "takeover": frozenset(_TAKEOVER_ACT),
+            "media": frozenset(_MEDIA_READ_TOOLS),
+            "terminal": frozenset(_TERMINAL_TOOLS),
+            "msg": frozenset(_MSG_TOOLS),
+            "fwrite": frozenset(_FILE_WRITE_TOOLS),
+            "web_prefixes": tuple(_WEB_MCP_PREFIXES),
+        }
+    u = _user_rules()
+
+    def strs(key: str) -> list:
+        v = u.get(key)
+        return [s.strip() for s in v if isinstance(s, str) and s.strip()] \
+            if isinstance(v, list) else []
+
+    def merge(target: set, pristine_key: str, yaml_key: str, env_var: str = "") -> None:
+        target.clear()
+        target.update(_PRISTINE[pristine_key])
+        target.update(strs(yaml_key))
+        if env_var:
+            target.update(_env_names(env_var))
+
+    merge(_TERMINAL_TOOLS, "terminal", "terminal_tools")
+    merge(_MSG_TOOLS, "msg", "msg_tools")
+    merge(_FILE_WRITE_TOOLS, "fwrite", "file_write_tools")
+    merge(_MEDIA_READ_TOOLS, "media", "media_read_tools")
+    merge(_MCP_EXEC_TOOLS, "exec", "exec_tools", "SECURITY_GATE_EXEC_TOOLS")
+    merge(_UIA_ACT, "uia", "desktop_act_tools", "SECURITY_GATE_DESKTOP_TOOLS")
+    merge(_TAKEOVER_ACT, "takeover", "takeover_act_tools", "SECURITY_GATE_TAKEOVER_TOOLS")
+    merge(_WEB_MCP_TOOLS, "web_mcp_tools", "web_mcp_tools", "SECURITY_GATE_WEB_MCP_TOOLS")
+    _WEB_MCP_PREFIXES = tuple(dict.fromkeys(
+        list(_PRISTINE["web_prefixes"]) + strs("web_mcp_prefixes")
+        + sorted(_env_names("SECURITY_GATE_WEB_MCP_PREFIXES"))))
+
+    # toolset → web-ingest tools (quarantined via SECURITY_GATE_Q_TOOLSETS)
+    for k in [k for k in _TOOLSET_TOOLS if k not in _PRISTINE["toolsets"]]:
+        del _TOOLSET_TOOLS[k]
+    for k, v in _PRISTINE["toolsets"].items():
+        _TOOLSET_TOOLS[k] = set(v)
+    tt = u.get("toolset_tools")
+    if isinstance(tt, dict):
+        for ts, tools in tt.items():
+            if isinstance(tools, list):
+                _TOOLSET_TOOLS.setdefault(str(ts), set()).update(
+                    t.strip() for t in tools if isinstance(t, str) and t.strip())
+
+    _QUARANTINE_READ_TOOLS.clear()
+    _QUARANTINE_READ_TOOLS.update(_MEDIA_READ_TOOLS | {"search_files", "patch", "edit_file"})
+
+    # sensitive-path matcher (write_file → secret_file; also injected into interp sinks)
+    frags = [_SENSITIVE_PATH_DEFAULT] + [f for f in strs("sensitive_paths") if _re_ok(f)]
+    _SENSITIVE_PATH_RE = re.compile("|".join(frags), re.I)
+
+    # terminal-command rules: user rules FIRST (they win on overlap), then defaults.
+    user_rules = []
+    raw = u.get("cmd_rules")
+    for r in raw if isinstance(raw, list) else []:
+        if not (isinstance(r, dict) and r.get("category") and r.get("pattern")):
+            continue
+        if _re_ok(str(r["pattern"])):
+            user_rules.append((str(r["category"]), re.compile(str(r["pattern"]), re.I)))
+    sf = [f for f in strs("secret_files") if _re_ok(f)]
+    if sf:
+        user_rules.append(("secret_read",
+                           re.compile(_SECRET_READ_CMDS + "(" + "|".join(sf) + ")", re.I)))
+    _CMD_RULES = tuple(user_rules) + _PRISTINE["cmd_rules"]
+
+
+_rebuild_rules()
 
 
 def _quarantine_token(args: Dict[str, Any]) -> str:
@@ -738,6 +865,9 @@ def register(ctx) -> None:
         # session key it captured on its handler thread (pool threads lack the contextvar).
         interp.APPROVAL_FN = lambda category, action, detail, session_key: \
             _request_gateway_approval(category, action, detail, session_key=session_key)
+        # Share the (yaml/env-extended) sensitive-path matcher, so site-specific
+        # secret paths also deny tainted plan writes — one list, both layers.
+        interp._SENSITIVE_PATH_RE = _SENSITIVE_PATH_RE
         interp.register(ctx)
     except Exception:
         pass
