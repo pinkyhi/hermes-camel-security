@@ -1,13 +1,15 @@
 # Configuring camel-security
 
-Everything site-specific is configuration — the code ships only **generic defaults**. There are two places to configure, both per Hermes profile:
+Everything site-specific is configuration — the code ships only **generic defaults**. Recognition config is layered, later layers appending to earlier ones:
 
-1. **`<HERMES_HOME>/.env`** — switches and knobs (what's enabled, how strict).
-2. **`<HERMES_HOME>/camel-security.yaml`** — *recognition*: your MCP servers, your secret files, your GUI-automation tools, your extra command rules.
+1. **Code defaults** — generic dangerous-command rules, common secret files, firecrawl/searxng ingest prefixes.
+2. **`<plugin dir>/camel-security.yaml`** — the shipped starter, created from [`camel-security.yaml.example`](camel-security.yaml.example) at install. Covers common setups (Google OAuth tokens, codex CLI auth, `kubectl delete`, popular GUI-automation tool names) so a fresh install has real coverage out of the box. Every section is `[EXTENDABLE]`; your edits survive plugin updates.
+3. **`<HERMES_HOME>/camel-security.yaml`** — per-profile additions (this is where *your* environment goes on multi-profile installs).
+4. **`.env`** — switches and knobs (what's enabled, how strict), plus quick comma-list appends for the tool lists.
 
-Both are read at process start — restart the gateway (`hermes gateway restart`) to apply changes.
+Env switches use the `CAMEL_SECURITY_*` prefix; the legacy `SECURITY_GATE_*` prefix is still read as a fallback. Everything is read at process start — restart the gateway (`hermes gateway restart`) to apply changes.
 
-Merging is **append-only**: your config *adds* recognition on top of the defaults, it never removes them. To make the gate *less* strict, don't edit lists — narrow `SECURITY_GATE_CATEGORIES` or set `SECURITY_GATE_NO_BLOCK=1` (audit-only). A broken config file or an invalid regex is skipped fail-open: defaults stay intact, the agent keeps working.
+Merging is **append-only**: your config *adds* recognition on top of the defaults, it never removes them. To make the gate *less* strict, don't edit lists — narrow `CAMEL_SECURITY_CATEGORIES` or set `CAMEL_SECURITY_NO_BLOCK=1` (audit-only). A broken config file or an invalid regex is skipped fail-open: defaults stay intact, the agent keeps working.
 
 ## Quick start
 
@@ -29,7 +31,7 @@ sensitive_paths:
 
 # Your web-ingest MCP servers (anything that brings in EXTERNAL content: scraping,
 # RSS, mail...). Vendor prefix, so future tools of that server are covered too.
-# Quarantined while the 'web' toolset is (SECURITY_GATE_Q_TOOLSETS):
+# Quarantined while the 'web' toolset is (CAMEL_SECURITY_Q_TOOLSETS):
 web_mcp_prefixes:
   - 'rss_'
 web_mcp_tools:          # or single tools by name
@@ -53,7 +55,7 @@ takeover_act_tools:
 
 # Your own terminal-command rules. Checked BEFORE the built-ins (yours win on
 # overlap). `category` can be an existing one or your own name — add new names
-# to SECURITY_GATE_CATEGORIES in .env, or they stay audit-only:
+# to CAMEL_SECURITY_CATEGORIES in .env, or they stay audit-only:
 cmd_rules:
   - category: destructive
     pattern: '\bkubectl\s+(delete|drain)\b'
@@ -70,11 +72,11 @@ Tool names are matched robustly against MCP naming shapes (`tool`, `server__tool
 For quick one-liners the most common lists also take comma-separated env appends (same append semantics, merged together with the yaml):
 
 ```env
-SECURITY_GATE_TAKEOVER_TOOLS=click_xy,type_text
-SECURITY_GATE_DESKTOP_TOOLS=invoke_element
-SECURITY_GATE_EXEC_TOOLS=run_sql
-SECURITY_GATE_WEB_MCP_PREFIXES=rss_,imap_
-SECURITY_GATE_WEB_MCP_TOOLS=fetch_page
+CAMEL_SECURITY_TAKEOVER_TOOLS=click_xy,type_text
+CAMEL_SECURITY_DESKTOP_TOOLS=invoke_element
+CAMEL_SECURITY_EXEC_TOOLS=run_sql
+CAMEL_SECURITY_WEB_MCP_PREFIXES=rss_,imap_
+CAMEL_SECURITY_WEB_MCP_TOOLS=fetch_page
 ```
 
 ## Switches and knobs (`.env`)
@@ -83,18 +85,18 @@ Gate layer (on by default):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SECURITY_GATE_CATEGORIES` | `push,egress,exec,secret_read,destructive,config,secret_file,desktop_act,takeover_act` | Which categories gate (everything classified still lands in the audit log) |
-| `SECURITY_GATE_NO_CACHE` | `takeover_act` | Categories that re-prompt on every call |
-| `SECURITY_GATE_NO_BLOCK` | off | Audit-only mode — never gate (rollback switch) |
-| `SECURITY_GATE_STRICT` | off | In non-gateway contexts (no approval channel): block instead of allow+audit |
+| `CAMEL_SECURITY_CATEGORIES` | `push,egress,exec,secret_read,destructive,config,secret_file,desktop_act,takeover_act` | Which categories gate (everything classified still lands in the audit log) |
+| `CAMEL_SECURITY_NO_CACHE` | `takeover_act` | Categories that re-prompt on every call |
+| `CAMEL_SECURITY_NO_BLOCK` | off | Audit-only mode — never gate (rollback switch) |
+| `CAMEL_SECURITY_STRICT` | off | In non-gateway contexts (no approval channel): block instead of allow+audit |
 
 Quarantine + interpreter (opt-in):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SECURITY_GATE_WEB_QUARANTINE` | off | Master switch for the web-ingest quarantine |
-| `SECURITY_GATE_Q_TOOLSETS` | `web` | Quarantined toolsets; add `browser` for playwright/chrome-devtools |
-| `SECURITY_GATE_INTERPRETER` | off | Register the `plan_execute` tool |
+| `CAMEL_SECURITY_WEB_QUARANTINE` | off | Master switch for the web-ingest quarantine |
+| `CAMEL_SECURITY_Q_TOOLSETS` | `web` | Quarantined toolsets; add `browser` for playwright/chrome-devtools |
+| `CAMEL_SECURITY_INTERPRETER` | off | Register the `plan_execute` tool |
 | `INTERP_OP_TIMEOUT` | 60 | Hard per-op timeout, seconds |
 | `INTERP_MAX_WORKERS` | 4 | Step/map parallelism ceiling |
 | `INTERP_MAP_MAX` | 200 | Hard ceiling on `map` fan-out |
@@ -111,9 +113,9 @@ Quarantine + interpreter (opt-in):
 
 **Protect a new secret.** Readable secret (API-key file) → `secret_files` (gates `cat`/`copy`/... of it). Writable-sensitive location (synced dir, kube config) → `sensitive_paths` (gates `write_file`, and tainted plan output is denied there).
 
-**Gate a new command shape.** `cmd_rules` with an existing category inherits its behavior. With a new category name, add it to `SECURITY_GATE_CATEGORIES` to make it prompt; otherwise it's audit-only — a reasonable way to trial a rule before enforcing it.
+**Gate a new command shape.** `cmd_rules` with an existing category inherits its behavior. With a new category name, add it to `CAMEL_SECURITY_CATEGORIES` to make it prompt; otherwise it's audit-only — a reasonable way to trial a rule before enforcing it.
 
-**Try a rule without enforcement.** Leave its category out of `SECURITY_GATE_CATEGORIES`, watch `security-audit.jsonl` for a few days, then add the category.
+**Try a rule without enforcement.** Leave its category out of `CAMEL_SECURITY_CATEGORIES`, watch `security-audit.jsonl` for a few days, then add the category.
 
 ## What's *not* configurable here
 

@@ -8,11 +8,11 @@ sink. Raw tainted values are NEVER returned to P — only a sanitized status (§
 
 Loaded as a sibling module by camel-security/__init__.py:register() (ONE plugin owns
 the indirect-injection-defense theme — gate + web quarantine + interpreter). Gated
-per profile by SECURITY_GATE_INTERPRETER=1 (tool hidden when off).
+per profile by CAMEL_SECURITY_INTERPRETER=1 (tool hidden when off; legacy SECURITY_GATE_ prefix accepted).
 Design overview: README.md — the §N markers in comments refer to its Design section.
 
 Env knobs (per profile .env):
-  SECURITY_GATE_INTERPRETER=1   register/offer plan_execute (master switch)
+  CAMEL_SECURITY_INTERPRETER=1  register/offer plan_execute (master switch)
   INTERP_OP_TIMEOUT=60          hard per-op timeout, seconds (min 5)
   INTERP_MAX_WORKERS=4          step/map parallelism ceiling
   INTERP_Q_MAX_TOKENS=800       Q (tool-less extraction) output budget
@@ -185,7 +185,9 @@ def _ilog(rec: Dict[str, Any]) -> None:
 
 
 def _flag() -> bool:
-    return os.environ.get("SECURITY_GATE_INTERPRETER", "").lower() in {"1", "true", "yes", "on"}
+    v = os.environ.get("CAMEL_SECURITY_INTERPRETER",
+                       os.environ.get("SECURITY_GATE_INTERPRETER", ""))
+    return v.lower() in {"1", "true", "yes", "on"}
 
 
 # ── capabilities ──────────────────────────────────────────────────────────────
@@ -1058,7 +1060,9 @@ def _sink_approve(category: str, action: str, detail: str, rctx) -> str:
     if out == "no_notifier":
         # No approval channel (CLI/cron/subagent). Non-strict: allow+audit (operator-
         # initiated, lower risk); strict: deny.
-        strict = os.environ.get("SECURITY_GATE_STRICT", "").lower() in {"1", "true", "yes", "on"}
+        strict = os.environ.get("CAMEL_SECURITY_STRICT",
+                                os.environ.get("SECURITY_GATE_STRICT", "")).lower() \
+            in {"1", "true", "yes", "on"}
         return "block" if strict else "run"
     if out == "error":
         return "run"
@@ -1943,7 +1947,7 @@ def register(ctx) -> None:
             toolset="interpreter",
             schema=_SCHEMA,
             handler=_handler_async,    # async → offloads to a thread; never blocks the loop
-            check_fn=_flag,            # per-profile: hidden unless SECURITY_GATE_INTERPRETER=1
+            check_fn=_flag,            # per-profile: hidden unless CAMEL_SECURITY_INTERPRETER=1
             is_async=True,
             description="CaMeL-lite plan-DAG interpreter (untrusted-data workflows).",
             emoji="📋",

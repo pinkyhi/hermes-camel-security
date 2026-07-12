@@ -21,19 +21,21 @@ Design notes:
   ``git push``, ``gh`` writes, PowerShell egress, ``write_file`` to secrets).
 * Fail-open: any internal error → allow + log, never crash the agent.
 
-Env switches:
-  SECURITY_GATE_NO_BLOCK=1   audit only, never gate (rollback switch)
-  SECURITY_GATE_STRICT=1     in non-gateway contexts (no Discord notifier),
+Env switches (CAMEL_SECURITY_* canonical; the legacy SECURITY_GATE_* prefix is
+still read as a fallback):
+  CAMEL_SECURITY_NO_BLOCK=1  audit only, never gate (rollback switch)
+  CAMEL_SECURITY_STRICT=1    in non-gateway contexts (no Discord notifier),
                              BLOCK gated categories instead of allowing
-  SECURITY_GATE_CATEGORIES   comma list overriding the gated set
-  SECURITY_GATE_NO_CACHE     comma list overriding the never-session-cache set
+  CAMEL_SECURITY_CATEGORIES  comma list overriding the gated set
+  CAMEL_SECURITY_NO_CACHE    comma list overriding the never-session-cache set
                              (each such category re-prompts every call). Unset =>
                              code default {takeover_act}. Empty / 'none' / 'off' /
                              '-' => NO no-cache categories (everything cacheable).
 
 Site-specific recognition (your MCP servers, secret files, GUI-automation tools,
-extra command rules) lives OUTSIDE the code: <HERMES_HOME>/camel-security.yaml
-plus SECURITY_GATE_{TAKEOVER,DESKTOP,EXEC,WEB_MCP}_TOOLS / _WEB_MCP_PREFIXES env
+extra command rules) lives OUTSIDE the code: the shipped starter
+<plugin dir>/camel-security.yaml, the per-profile <HERMES_HOME>/camel-security.yaml,
+and CAMEL_SECURITY_{TAKEOVER,DESKTOP,EXEC,WEB_MCP}_TOOLS / _WEB_MCP_PREFIXES env
 appends — merged over the generic defaults by _rebuild_rules(). See CONFIGURATION.md.
 """
 from __future__ import annotations
@@ -68,8 +70,21 @@ _GATED_DEFAULT = {"push", "egress", "exec", "secret_read", "destructive", "confi
 _NO_CACHE_DEFAULT = {"takeover_act"}
 
 
+def _genv(name: str, default: str = "") -> str:
+    """Read a plugin env switch: CAMEL_SECURITY_<name>, falling back to the legacy
+    SECURITY_GATE_<name> prefix (pre-0.5 installs keep working unchanged)."""
+    v = os.environ.get("CAMEL_SECURITY_" + name)
+    if v is None:
+        v = os.environ.get("SECURITY_GATE_" + name)
+    return default if v is None else v
+
+
+def _genv_present(name: str) -> bool:
+    return ("CAMEL_SECURITY_" + name) in os.environ or ("SECURITY_GATE_" + name) in os.environ
+
+
 def _gated_categories() -> set:
-    raw = os.environ.get("SECURITY_GATE_CATEGORIES", "").strip()
+    raw = _genv("CATEGORIES").strip()
     if raw:
         return {c.strip() for c in raw.split(",") if c.strip()}
     return set(_GATED_DEFAULT)
@@ -85,40 +100,40 @@ def _no_cache_categories() -> set:
       * comma list           -> exactly those categories.
     Presence-based (not truthiness) so an explicit empty value can express the
     empty set even if a category was the only prior member."""
-    if "SECURITY_GATE_NO_CACHE" not in os.environ:
+    if not _genv_present("NO_CACHE"):
         return set(_NO_CACHE_DEFAULT)
-    raw = os.environ.get("SECURITY_GATE_NO_CACHE", "").strip()
+    raw = _genv("NO_CACHE").strip()
     if raw.lower() in {"", "none", "off", "-"}:
         return set()
     return {c.strip() for c in raw.split(",") if c.strip()}
 
 
 def _no_block() -> bool:
-    return os.environ.get("SECURITY_GATE_NO_BLOCK", "").lower() in {"1", "true", "yes", "on"}
+    return _genv("NO_BLOCK").lower() in {"1", "true", "yes", "on"}
 
 
 def _strict() -> bool:
-    return os.environ.get("SECURITY_GATE_STRICT", "").lower() in {"1", "true", "yes", "on"}
+    return _genv("STRICT").lower() in {"1", "true", "yes", "on"}
 
 
 def _web_quarantine() -> bool:
     """Master switch for the web-delegation quarantine feature (the 1B block, and
     — once wired — the 1A instruction injection). ONE variable turns the whole
     delegation-quarantine on/off, per profile via its .env."""
-    return os.environ.get("SECURITY_GATE_WEB_QUARANTINE", "").lower() in {"1", "true", "yes", "on"}
+    return _genv("WEB_QUARANTINE").lower() in {"1", "true", "yes", "on"}
 
 
 def _interpreter_on() -> bool:
     """Stage-3 interpreter enabled (the plan_execute tool is visible). It is the sole
     research path: the 1A injection + 1B block route all web research to plan_execute."""
-    return os.environ.get("SECURITY_GATE_INTERPRETER", "").lower() in {"1", "true", "yes", "on"}
+    return _genv("INTERPRETER").lower() in {"1", "true", "yes", "on"}
 
 
 def _q_toolsets() -> list:
     """The quarantined toolsets: their web-ingest tools are plan-only for top-level
     agents (blocked → routed to plan_execute). Configurable via SECURITY_GATE_Q_TOOLSETS;
     default 'web' (add 'browser' to also quarantine playwright/chrome-devtools)."""
-    raw = os.environ.get("SECURITY_GATE_Q_TOOLSETS", "web").strip()
+    raw = _genv("Q_TOOLSETS", "web").strip()
     return [t.strip() for t in raw.split(",") if t.strip()] or ["web"]
 
 
@@ -271,8 +286,11 @@ _QUARANTINE_READ_TOOLS = _MEDIA_READ_TOOLS | {"search_files", "patch", "edit_fil
 _PRISTINE: Optional[dict] = None  # default-table snapshot → rebuilds are repeatable
 
 
-def _env_names(var: str) -> set:
-    return {t.strip() for t in os.environ.get(var, "").split(",") if t.strip()}
+def _env_names(name: str) -> set:
+    """Comma-list env append, read under both prefixes (CAMEL_SECURITY_ + legacy)."""
+    raw = (os.environ.get("CAMEL_SECURITY_" + name, "") + ","
+           + os.environ.get("SECURITY_GATE_" + name, ""))
+    return {t.strip() for t in raw.split(",") if t.strip()}
 
 
 def _re_ok(p: str) -> bool:
@@ -283,12 +301,9 @@ def _re_ok(p: str) -> bool:
         return False
 
 
-def _user_rules() -> dict:
-    """<HERMES_HOME>/camel-security.yaml parsed to a dict — {} if absent/unreadable."""
+def _read_rules_file(p: str) -> dict:
     try:
         import yaml
-        p = os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"),
-                         "camel-security.yaml")
         if not os.path.exists(p):
             return {}
         with open(p, encoding="utf-8") as f:
@@ -296,6 +311,38 @@ def _user_rules() -> dict:
         return d if isinstance(d, dict) else {}
     except Exception:
         return {}
+
+
+def _user_rules() -> dict:
+    """Two config layers, merged (lists concatenate, later file appends):
+    1. <plugin dir>/camel-security.yaml — the shipped starter (created from
+       camel-security.yaml.example by `hermes plugins install`; survives updates).
+    2. <HERMES_HOME>/camel-security.yaml — the per-profile user file.
+    Both optional; {} if neither exists / both unreadable."""
+    layers = [
+        _read_rules_file(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "camel-security.yaml")),
+        _read_rules_file(os.path.join(
+            os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"),
+            "camel-security.yaml")),
+    ]
+    out: dict = {}
+    for layer in layers:
+        for k, v in layer.items():
+            if isinstance(v, list):
+                base = out.get(k)
+                out[k] = (base if isinstance(base, list) else []) + v
+            elif isinstance(v, dict):
+                base = out.get(k)
+                base = base if isinstance(base, dict) else {}
+                for kk, vv in v.items():
+                    if isinstance(vv, list):
+                        prev = base.get(kk)
+                        base[kk] = (prev if isinstance(prev, list) else []) + vv
+                out[k] = base
+            else:
+                out[k] = v
+    return out
 
 
 def _rebuild_rules() -> None:
@@ -335,13 +382,13 @@ def _rebuild_rules() -> None:
     merge(_MSG_TOOLS, "msg", "msg_tools")
     merge(_FILE_WRITE_TOOLS, "fwrite", "file_write_tools")
     merge(_MEDIA_READ_TOOLS, "media", "media_read_tools")
-    merge(_MCP_EXEC_TOOLS, "exec", "exec_tools", "SECURITY_GATE_EXEC_TOOLS")
-    merge(_UIA_ACT, "uia", "desktop_act_tools", "SECURITY_GATE_DESKTOP_TOOLS")
-    merge(_TAKEOVER_ACT, "takeover", "takeover_act_tools", "SECURITY_GATE_TAKEOVER_TOOLS")
-    merge(_WEB_MCP_TOOLS, "web_mcp_tools", "web_mcp_tools", "SECURITY_GATE_WEB_MCP_TOOLS")
+    merge(_MCP_EXEC_TOOLS, "exec", "exec_tools", "EXEC_TOOLS")
+    merge(_UIA_ACT, "uia", "desktop_act_tools", "DESKTOP_TOOLS")
+    merge(_TAKEOVER_ACT, "takeover", "takeover_act_tools", "TAKEOVER_TOOLS")
+    merge(_WEB_MCP_TOOLS, "web_mcp_tools", "web_mcp_tools", "WEB_MCP_TOOLS")
     _WEB_MCP_PREFIXES = tuple(dict.fromkeys(
         list(_PRISTINE["web_prefixes"]) + strs("web_mcp_prefixes")
-        + sorted(_env_names("SECURITY_GATE_WEB_MCP_PREFIXES"))))
+        + sorted(_env_names("WEB_MCP_PREFIXES"))))
 
     # toolset → web-ingest tools (quarantined via SECURITY_GATE_Q_TOOLSETS)
     for k in [k for k in _TOOLSET_TOOLS if k not in _PRISTINE["toolsets"]]:

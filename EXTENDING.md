@@ -8,9 +8,9 @@
 |---|---|---|
 | Terminal command rules | `__init__.py` → `_CMD_RULES` defaults; user rules via `camel-security.yaml` | Ordered `(category, regex)` tuple — first match wins; user rules prepended by `_rebuild_rules()` |
 | Tool-name → category tables | `__init__.py` → `_TERMINAL_TOOLS`, `_MSG_TOOLS`, `_FILE_WRITE_TOOLS`, `_UIA_ACT`, `_TAKEOVER_ACT`, `_MCP_EXEC_TOOLS`, `_MEDIA_READ_TOOLS` defaults; extended by yaml/env in `_rebuild_rules()` | Set membership, matched via `_suffix_match()` (MCP-shape robust) |
-| Which categories gate (vs audit-only) | `__init__.py` → `_GATED_DEFAULT` | Overridable per profile: `SECURITY_GATE_CATEGORIES` |
-| Which categories never cache an approval | `__init__.py` → `_NO_CACHE_DEFAULT` | Overridable: `SECURITY_GATE_NO_CACHE` |
-| Untrusted web-ingest sources | `__init__.py` → `_TOOLSET_TOOLS`, `_WEB_MCP_PREFIXES`, `_WEB_MCP_TOOLS` | Toolset selection via `SECURITY_GATE_Q_TOOLSETS` |
+| Which categories gate (vs audit-only) | `__init__.py` → `_GATED_DEFAULT` | Overridable per profile: `CAMEL_SECURITY_CATEGORIES` |
+| Which categories never cache an approval | `__init__.py` → `_NO_CACHE_DEFAULT` | Overridable: `CAMEL_SECURITY_NO_CACHE` |
+| Untrusted web-ingest sources | `__init__.py` → `_TOOLSET_TOOLS`, `_WEB_MCP_PREFIXES`, `_WEB_MCP_TOOLS` | Toolset selection via `CAMEL_SECURITY_Q_TOOLSETS` |
 | Classifier dispatch | `__init__.py` → `_classify()` | Ordered if-chain — order is policy (see below) |
 | Interpreter operations | `interp.py` → `@_op(name, kind, adds, sink_category)` decorator, `OPS` registry | Anything not in `OPS` is rejected at plan validation |
 | Capability propagation | `interp.py` → `Caps`, `Op.adds` | Automatic: output caps = union of input caps + `adds` |
@@ -67,7 +67,7 @@ def _send_email(args, in_caps, session=None):
 
 ## Tuning policy without code
 
-Per profile `.env`: `SECURITY_GATE_CATEGORIES` / `SECURITY_GATE_NO_CACHE` reshape the gate; `SECURITY_GATE_Q_TOOLSETS` widens/narrows the quarantine; `INTERP_SINK_<CATEGORY>=allow|deny|approve` overrides a tainted-branch sink decision. Code changes are only needed for new *recognition* (rules, tools, ops) — never for tightening/loosening what's already recognized.
+Per profile `.env`: `CAMEL_SECURITY_CATEGORIES` / `CAMEL_SECURITY_NO_CACHE` reshape the gate; `CAMEL_SECURITY_Q_TOOLSETS` widens/narrows the quarantine; `INTERP_SINK_<CATEGORY>=allow|deny|approve` overrides a tainted-branch sink decision. Code changes are only needed for new *recognition* (rules, tools, ops) — never for tightening/loosening what's already recognized.
 
 ## Tests
 

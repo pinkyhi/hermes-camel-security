@@ -24,27 +24,47 @@ Then enable the optional layers per profile in `<HERMES_HOME>/.env` (the gate + 
 
 ```env
 # CaMeL-lite interpreter (registers the plan_execute tool)
-SECURITY_GATE_INTERPRETER=1
+CAMEL_SECURITY_INTERPRETER=1
 # route web research through plan_execute (1A steer + 1B block)
-SECURITY_GATE_WEB_QUARANTINE=1
-SECURITY_GATE_Q_TOOLSETS=web            # add ",browser" to quarantine playwright/chrome-devtools too
+CAMEL_SECURITY_WEB_QUARANTINE=1
+CAMEL_SECURITY_Q_TOOLSETS=web           # add ",browser" to quarantine playwright/chrome-devtools too
 ```
 
-Requires a Hermes version with plugin hooks (`pre_tool_call`, `post_tool_call`, `pre_llm_call`) and `ctx.register_tool`.
+(The legacy `SECURITY_GATE_*` prefix keeps working as a fallback.) Requires a Hermes version with plugin hooks (`pre_tool_call`, `post_tool_call`, `pre_llm_call`) and `ctx.register_tool`.
 
-The defaults are generic. To teach the gate *your* environment — your MCP servers, your secret files, your GUI-automation tools, extra command rules — drop a `camel-security.yaml` next to your profile config (append-only, fail-open):
+**It works out of the box.** The code ships generic recognition (git push / `gh` writes, curl/wget/PowerShell egress, encoded/inline exec, rm/Remove-Item destructive shapes, common secret files, firecrawl/searxng ingest), and the install copies a starter `camel-security.yaml` covering common setups — Google OAuth token files, codex CLI auth, `kubectl delete`, popular GUI-automation (takeover/UIA-style) tool names. Every list is `[EXTENDABLE]`.
+
+To teach the gate *your* environment, extend `<HERMES_HOME>/camel-security.yaml` (merged on top of the starter; append-only, fail-open, restart to apply). Every configurable key with an example:
 
 ```yaml
-# <HERMES_HOME>/camel-security.yaml
-secret_files: ['google_token', 'wallet\.dat']
-web_mcp_prefixes: ['rss_']          # your web-ingest MCP servers → quarantined
-takeover_act_tools: [click_xy, type_text]   # blind GUI automation → per-action approval
-cmd_rules:
-  - category: destructive
-    pattern: '\bkubectl\s+(delete|drain)\b'
+# <HERMES_HOME>/camel-security.yaml — everything is append-only over the defaults
+
+secret_files:               # reading these in a terminal command prompts (secret_read)
+  - 'wallet\.dat'           # regex fragments; defaults: auth.json, id_rsa, .ssh/, *.pem, *.key...
+sensitive_paths:            # write_file here prompts; tainted plan writes here are DENIED
+  - '\.kube[/\\]'
+cmd_rules:                  # your terminal rules — checked BEFORE built-ins, yours win
+  - category: egress        # existing category (push/egress/exec/secret_read/destructive/config)…
+    pattern: '\baws\s+s3\s+cp\b.*s3://'
+  - category: deploy        # …or your own — add it to CAMEL_SECURITY_CATEGORIES to make it prompt
+    pattern: '\bterraform\s+(apply|destroy)\b'
+web_mcp_prefixes:           # your web-ingest MCP servers (external content) → quarantined
+  - 'rss_'                  # prefix covers the server's current AND future tools
+web_mcp_tools:              # or single ingest tools by bare name
+  - 'fetch_page'
+exec_tools:                 # your code-execution MCP tools → classified exec
+  - 'run_sql'
+takeover_act_tools:         # blind screen-coordinate GUI tools → EVERY action prompts
+  - 'click_xy'
+desktop_act_tools:          # element-level (UIA-style) GUI tools → one prompt per session
+  - 'invoke_element'
+toolset_tools:              # extra ingest tools for a built-in toolset (rare)
+  web: ['my_search']
 ```
 
-Full schema, env knobs, and recipes: **[CONFIGURATION.md](CONFIGURATION.md)**.
+Quick env one-liners for the tool lists (comma-separated, same append semantics): `CAMEL_SECURITY_TAKEOVER_TOOLS`, `CAMEL_SECURITY_DESKTOP_TOOLS`, `CAMEL_SECURITY_EXEC_TOOLS`, `CAMEL_SECURITY_WEB_MCP_PREFIXES`, `CAMEL_SECURITY_WEB_MCP_TOOLS`.
+
+Full schema, all switches, and recipes: **[CONFIGURATION.md](CONFIGURATION.md)**.
 
 ## How the interpreter works
 
