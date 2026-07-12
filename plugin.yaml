@@ -1,5 +1,5 @@
 name: camel-security
-version: "0.5.2"
+version: "0.5.3"
 manifest_version: 1
 description: >-
   Prompt-injection defense for Hermes, as a pure plugin (no core changes):
@@ -10,8 +10,8 @@ description: >-
   influence values but can never redirect control or reach a dangerous sink.
   Generic defaults work out of the box; site recognition — your MCP servers,
   secret files, GUI tools, command rules — goes in <HERMES_HOME>/camel-security.yaml
-  (recommended starting file in CONFIGURATION.md), no code. Env prefix CAMEL_SECURITY_*
-  (legacy SECURITY_GATE_* still accepted). See CONFIGURATION.md.
+  (recommended starting file in the README), no code. Env prefix CAMEL_SECURITY_*
+  (legacy SECURITY_GATE_* still accepted). See the README.
 author: Ivan Vladymyrov
 license: MIT
 hooks:

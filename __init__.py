@@ -34,9 +34,9 @@ still read as a fallback):
 
 Site-specific recognition (your MCP servers, secret files, GUI-automation tools,
 extra command rules) lives OUTSIDE the code: <HERMES_HOME>/camel-security.yaml
-(recommended starting file in CONFIGURATION.md) plus
+(recommended starting file in the README) plus
 CAMEL_SECURITY_{TAKEOVER,DESKTOP,EXEC,WEB_MCP}_TOOLS / _WEB_MCP_PREFIXES env
-appends — merged over the generic defaults by _rebuild_rules(). See CONFIGURATION.md.
+appends — merged over the generic defaults by _rebuild_rules(). See README.md.
 """
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ def _audit_path() -> str:
 # Everything below is a GENERIC default. Site-specific recognition — your MCP
 # servers, your crown-jewel files, your GUI-automation tools — is merged in from
 # <HERMES_HOME>/camel-security.yaml and SECURITY_GATE_* env appends by
-# _rebuild_rules() (bottom of this section). See CONFIGURATION.md.
+# _rebuild_rules() (bottom of this section). See README.md.
 _SECRET_READ_CMDS = r"\b(cat|type|more|less|head|tail|gc|get-content|select-string|findstr|cp|copy|copy-item)\b[^\n]*"
 _SECRET_FILES_DEFAULT = r"auth\.json|id_rsa|\.ssh[/\\]|client_secret|\.pem\b|\.key\b"
 _CMD_RULES: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
@@ -277,7 +277,7 @@ _INTERNAL_LOG_RE = re.compile(r"(?:interp-audit|security-audit)\.jsonl", re.I)
 _QUARANTINE_READ_TOOLS = _MEDIA_READ_TOOLS | {"search_files", "patch", "edit_file"}
 
 
-# ── user-extensible recognition (CONFIGURATION.md) ────────────────────────────
+# ── user-extensible recognition (README.md) ───────────────────────────────────
 # The tables above are generic defaults. _rebuild_rules() merges in site-specific
 # entries from <HERMES_HOME>/camel-security.yaml and SECURITY_GATE_* env appends.
 # APPEND-ONLY: user config adds recognition, never removes defaults (loosen via

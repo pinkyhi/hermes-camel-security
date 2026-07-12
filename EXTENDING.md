@@ -1,6 +1,6 @@
 # Extending camel-security
 
-**Most extension is configuration, not code.** New command rules, new tools/servers to gate or quarantine, new secret files — all of that is `camel-security.yaml` + env appends, covered in [CONFIGURATION.md](CONFIGURATION.md). This document is for *code* extension: changing what defaults ship, adding interpreter operations, and adding sink categories/policies.
+**Most extension is configuration, not code.** New command rules, new tools/servers to gate or quarantine, new secret files — all of that is `camel-security.yaml` + env appends, covered in the [README](README.md). This document is for *code* extension: changing what defaults ship, adding interpreter operations, and adding sink categories/policies.
 
 ## Map of the moving parts
 
@@ -40,7 +40,7 @@ The §N markers in code comments refer to these (numbering follows the original 
 
 ## Recipe: change what ships as a DEFAULT
 
-Site-specific entries belong in `camel-security.yaml` ([CONFIGURATION.md](CONFIGURATION.md)) — a default should only grow when a rule/tool is generic for *every* Hermes install (a new common secret-file name, a widely-used MCP vendor prefix, a missing PowerShell dialect of an existing rule).
+Site-specific entries belong in `camel-security.yaml` ([README](README.md)) — a default should only grow when a rule/tool is generic for *every* Hermes install (a new common secret-file name, a widely-used MCP vendor prefix, a missing PowerShell dialect of an existing rule).
 
 1. Command rules: add to `_CMD_RULES`. **Order matters** — first match wins (that's why `secret_read` sits above `config` and `script_egress` is last; user yaml rules are prepended before all of them). Cover both shell dialects — Git Bash *and* PowerShell (`rm -rf` **and** `Remove-Item -Recurse -Force`).
 2. Tool sets: add the **bare** tool name to the right `_DEFAULT`-role set; `_suffix_match()` covers the MCP naming shapes. Keep `_UIA_ACT`/`_TAKEOVER_ACT` defaults empty — GUI-automation fleets are inherently site-specific.
