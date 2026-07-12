@@ -4,7 +4,7 @@ stdlib-only, no gateway/hermes imports.
 Backends are stubbed by swapping OPS[...].fn (the real ones lazy-import hermes
 packages, never touched here). Run from anywhere:
 
-    python hermes-data/plugins/camel-security/test_offline.py
+    python test_offline.py
 
 Covers: import cleanliness, plan validation, $ref/caps propagation (incl. numeric
 indexing), sink policy + env overrides, parallel map timing, the section-7
@@ -1022,27 +1022,27 @@ check("tool desc: same one-plan / self-contained rule present",
       "ONE PLAN PER TASK" in mod._TOOL_DESC and "SELF-CONTAINED" in mod._TOOL_DESC)
 
 # ── 12. quarantine_read gate: the location convention (Phase F slice 1) ───────
-qq = "E:/agents/hermes/hermes-data/quarantine/findings.md"
+qq = "/home/user/.hermes/quarantine/findings.md"
 check("gate: read_file on a quarantine path → quarantine_read",
       (gmod._classify("read_file", {"path": qq}) or ("",))[0] == "quarantine_read")
 check("gate: read_file on a normal text path → not gated (accepted residual)",
-      gmod._classify("read_file", {"path": "E:/agents/hermes/notes.md"}) is None)
+      gmod._classify("read_file", {"path": "/home/user/projects/notes.md"}) is None)
 check("gate: vision_analyze on a quarantined image → quarantine_read (before media_ingest)",
       (gmod._classify("vision_analyze", {"path": "e:/x/quarantine/pic.png"}) or ("",))[0]
       == "quarantine_read")
 check("gate: search_files over quarantine/ → quarantine_read",
-      (gmod._classify("search_files", {"path": "hermes-data/quarantine/", "q": "x"})
+      (gmod._classify("search_files", {"path": ".hermes/quarantine/", "q": "x"})
        or ("",))[0] == "quarantine_read")
 check("gate: write_file INTO quarantine not blocked (writing doesn't ingest)",
-      gmod._classify("write_file", {"path": "hermes-data/quarantine/new.md"}) is None)
+      gmod._classify("write_file", {"path": ".hermes/quarantine/new.md"}) is None)
 check("gate: delete of a quarantined file stays destructive",
-      (gmod._classify("delete_file", {"path": "hermes-data/quarantine/x.md"}) or ("",))[0]
+      (gmod._classify("delete_file", {"path": ".hermes/quarantine/x.md"}) or ("",))[0]
       == "destructive")
 check("gate: terminal read of a quarantine path → quarantine_read",
-      (gmod._classify("terminal", {"command": "type hermes-data\\quarantine\\findings.md"})
+      (gmod._classify("terminal", {"command": "type .hermes\\quarantine\\findings.md"})
        or ("",))[0] == "quarantine_read")
 check("gate: terminal rm -rf on quarantine → destructive wins (rule order)",
-      (gmod._classify("terminal", {"command": "rm -rf hermes-data/quarantine/"})
+      (gmod._classify("terminal", {"command": "rm -rf .hermes/quarantine/"})
        or ("",))[0] == "destructive")
 # enforcement: top-level blocked → plan_execute redirect; subagent passes; off → observe
 blk = gmod._on_pre_tool_call(tool_name="read_file", args={"path": qq}, task_id="top-1")
@@ -1101,10 +1101,10 @@ _rc = mod.RunCtx({"platform": "", "chat_id": ""}); _rc.tainted_touched = True
 check("B1: _p_detail withholds AND never points P at the audit file",
       "withheld" in mod._p_detail("boom", _rc) and "audit" not in mod._p_detail("boom", _rc).lower())
 check("B1: gate blocks a top-level read of the interp audit log (quarantine_read)",
-      (gmod._classify("read_file", {"path": "E:/agents/hermes/hermes-data/interp-audit.jsonl"})
+      (gmod._classify("read_file", {"path": "/home/user/.hermes/interp-audit.jsonl"})
        or ("",))[0] == "quarantine_read")
 check("B1: gate blocks a terminal cat of the audit log too",
-      (gmod._classify("terminal", {"command": "type hermes-data\\interp-audit.jsonl"})
+      (gmod._classify("terminal", {"command": "type .hermes\\interp-audit.jsonl"})
        or ("",))[0] == "quarantine_read")
 
 # A2: the _handler_async top-level fallback returns an OPAQUE detail (never raw repr to P).
