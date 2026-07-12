@@ -1456,11 +1456,9 @@ check("gate: takeover act tool NOT swept up by the web match (no over-match)",
       (gmod._classify("mcp_takeover_click_element", {}) or ("",))[0] != "web_quarantined")
 
 # ── 12. user-extensible recognition: camel-security.yaml + env appends ────────
-_plugdir_starter = os.path.exists(os.path.join(_HERE, "camel-security.yaml"))
-if not _plugdir_starter:  # in an INSTALLED plugin dir the shipped starter fills these
-    check("rules: takeover/desktop CODE defaults are EMPTY (site-specific, not shipped)",
-          gmod._TAKEOVER_ACT == set() and gmod._UIA_ACT == set()
-          and gmod._classify("mcp_takeover_click_element", {}) is None)
+check("rules: takeover/desktop CODE defaults are EMPTY (site-specific, not shipped)",
+      gmod._TAKEOVER_ACT == set() and gmod._UIA_ACT == set()
+      and gmod._classify("mcp_takeover_click_element", {}) is None)
 
 os.environ["SECURITY_GATE_TAKEOVER_TOOLS"] = "click_element,type_text"
 gmod._rebuild_rules()
@@ -1532,22 +1530,6 @@ os.environ.pop("CAMEL_SECURITY_Q_TOOLSETS", None)
 check("env: legacy prefix still drives switches (fallback)",
       gmod._web_quarantine() is True)  # SECURITY_GATE_WEB_QUARANTINE=1 set in section 11
 
-# ── 14. shipped starter: plugin-dir camel-security.yaml is a second layer ─────
-_plugdir_yaml = os.path.join(_HERE, "camel-security.yaml")
-_had_plugdir = os.path.exists(_plugdir_yaml)
-if not _had_plugdir:
-    with open(_plugdir_yaml, "w", encoding="utf-8") as _f:
-        _f.write("takeover_act_tools: [starter_click]\nsecret_files: ['starter_secret']\n")
-    gmod._rebuild_rules()
-    check("layers: plugin-dir yaml (shipped starter) is merged",
-          (gmod._classify("mcp_x_starter_click", {}) or ("",))[0] == "takeover_act"
-          and (gmod._classify("terminal", {"command": "cat starter_secret.json"})
-               or ("",))[0] == "secret_read")
-    os.remove(_plugdir_yaml)
-    gmod._rebuild_rules()
-else:  # dev checkout already has a starter — just assert it loads without breaking defaults
-    check("layers: plugin-dir starter present and defaults intact",
-          (gmod._classify("terminal", {"command": "git push"}) or ("",))[0] == "push")
 
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
 sys.exit(1 if FAIL else 0)

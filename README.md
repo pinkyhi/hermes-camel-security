@@ -32,34 +32,72 @@ CAMEL_SECURITY_Q_TOOLSETS=web           # add ",browser" to quarantine playwrigh
 
 (The legacy `SECURITY_GATE_*` prefix keeps working as a fallback.) Requires a Hermes version with plugin hooks (`pre_tool_call`, `post_tool_call`, `pre_llm_call`) and `ctx.register_tool`.
 
-**It works out of the box.** The code ships generic recognition (git push / `gh` writes, curl/wget/PowerShell egress, encoded/inline exec, rm/Remove-Item destructive shapes, common secret files, firecrawl/searxng ingest), and the install copies a starter `camel-security.yaml` covering common setups — Google OAuth token files, codex CLI auth, `kubectl delete`, popular GUI-automation (takeover/UIA-style) tool names. Every list is `[EXTENDABLE]`.
+The code ships **generic recognition** that works with no configuration: git push / `gh` writes, curl/wget/PowerShell egress, encoded/inline exec, rm/Remove-Item destructive shapes, common secret files (auth.json, id_rsa, .ssh/, *.pem, *.key), firecrawl/searxng ingest.
 
-To teach the gate *your* environment, extend `<HERMES_HOME>/camel-security.yaml` (merged on top of the starter; append-only, fail-open, restart to apply). Every configurable key with an example:
+### The starting `camel-security.yaml`
+
+Everything site-specific is one YAML file: `<HERMES_HOME>/camel-security.yaml`. Create it from this recommended starting point — it covers common setups (Google OAuth tokens, codex CLI auth, kubectl, typical GUI-automation tool names), every section is extendable, and unknown/absent keys are simply ignored (append-only over the defaults, fail-open on mistakes, gateway restart to apply):
 
 ```yaml
-# <HERMES_HOME>/camel-security.yaml — everything is append-only over the defaults
+# <HERMES_HOME>/camel-security.yaml — site-specific recognition, appended to the defaults
 
-secret_files:               # reading these in a terminal command prompts (secret_read)
-  - 'wallet\.dat'           # regex fragments; defaults: auth.json, id_rsa, .ssh/, *.pem, *.key...
-sensitive_paths:            # write_file here prompts; tainted plan writes here are DENIED
-  - '\.kube[/\\]'
-cmd_rules:                  # your terminal rules — checked BEFORE built-ins, yours win
-  - category: egress        # existing category (push/egress/exec/secret_read/destructive/config)…
-    pattern: '\baws\s+s3\s+cp\b.*s3://'
-  - category: deploy        # …or your own — add it to CAMEL_SECURITY_CATEGORIES to make it prompt
-    pattern: '\bterraform\s+(apply|destroy)\b'
-web_mcp_prefixes:           # your web-ingest MCP servers (external content) → quarantined
-  - 'rss_'                  # prefix covers the server's current AND future tools
-web_mcp_tools:              # or single ingest tools by bare name
-  - 'fetch_page'
-exec_tools:                 # your code-execution MCP tools → classified exec
-  - 'run_sql'
-takeover_act_tools:         # blind screen-coordinate GUI tools → EVERY action prompts
-  - 'click_xy'
-desktop_act_tools:          # element-level (UIA-style) GUI tools → one prompt per session
-  - 'invoke_element'
-toolset_tools:              # extra ingest tools for a built-in toolset (rare)
-  web: ['my_search']
+# [EXTENDABLE] Secret FILES — terminal reads of these (cat/type/Get-Content/copy/...)
+# prompt for approval. Regex fragments:
+secret_files:
+  - 'google_token'          # Google OAuth token caches
+  - 'google_client_secret'
+  - '\.codex'               # codex CLI auth (~/.codex/auth.json)
+  # - 'wallet\.dat'         # …your crown-jewel files
+
+# [EXTENDABLE] Sensitive PATHS — write_file here prompts; tainted plan output here is DENIED:
+sensitive_paths:
+  - '\.codex'
+  # - '\.kube[/\\]'
+
+# [EXTENDABLE] Your terminal-command rules — checked BEFORE the built-ins, yours win.
+# `category` = existing (push/egress/exec/secret_read/destructive/config) or your own
+# (add new names to CAMEL_SECURITY_CATEGORIES in .env to make them prompt; else audit-only):
+cmd_rules:
+  - category: destructive
+    pattern: '\bkubectl\s+(delete|drain)\b'
+  # - category: egress
+  #   pattern: '\baws\s+s3\s+cp\b.*s3://'
+
+# [EXTENDABLE] Web-ingest MCP SERVERS (bring EXTERNAL content into context) — quarantined
+# while the web toolset is. A vendor prefix covers the server's current AND future tools:
+web_mcp_prefixes: []
+  # - 'rss_'
+  # - 'imap_'
+web_mcp_tools: []           # or single ingest tools by bare name, e.g. 'fetch_page'
+
+# [EXTENDABLE] Code-execution MCP tools → classified `exec`:
+exec_tools: []
+  # - 'run_sql'
+
+# [EXTENDABLE] GUI automation, strict tier: BLIND screen-coordinate tools (PyAutoGUI-style).
+# EVERY action prompts, approvals never cache. Only acting tools — not screenshot/stop:
+takeover_act_tools:
+  - click_element
+  - click_xy
+  - double_click
+  - right_click
+  - type_text
+  - press_key
+  - scroll
+  - move
+
+# [EXTENDABLE] GUI automation, softer tier: element-level (UIA-style) mutations —
+# one approval per session:
+desktop_act_tools:
+  - invoke_element
+  - set_text
+  - select_element
+  - window_action
+  - launch_application
+
+# [EXTENDABLE] Extra ingest tools for a built-in toolset (rare):
+toolset_tools: {}
+  # web: ['my_search']
 ```
 
 Quick env one-liners for the tool lists (comma-separated, same append semantics): `CAMEL_SECURITY_TAKEOVER_TOOLS`, `CAMEL_SECURITY_DESKTOP_TOOLS`, `CAMEL_SECURITY_EXEC_TOOLS`, `CAMEL_SECURITY_WEB_MCP_PREFIXES`, `CAMEL_SECURITY_WEB_MCP_TOOLS`.

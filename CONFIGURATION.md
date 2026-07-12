@@ -1,11 +1,9 @@
 # Configuring camel-security
 
-Everything site-specific is configuration — the code ships only **generic defaults**. Recognition config is layered, later layers appending to earlier ones:
+Everything site-specific is configuration — the code ships only **generic defaults** (dangerous-command rules, common secret files, firecrawl/searxng ingest prefixes). Two places to configure, both per Hermes profile:
 
-1. **Code defaults** — generic dangerous-command rules, common secret files, firecrawl/searxng ingest prefixes.
-2. **`<plugin dir>/camel-security.yaml`** — the shipped starter, created from [`camel-security.yaml.example`](camel-security.yaml.example) at install. Covers common setups (Google OAuth tokens, codex CLI auth, `kubectl delete`, popular GUI-automation tool names) so a fresh install has real coverage out of the box. Every section is `[EXTENDABLE]`; your edits survive plugin updates.
-3. **`<HERMES_HOME>/camel-security.yaml`** — per-profile additions (this is where *your* environment goes on multi-profile installs).
-4. **`.env`** — switches and knobs (what's enabled, how strict), plus quick comma-list appends for the tool lists.
+1. **`<HERMES_HOME>/camel-security.yaml`** — *recognition*: your MCP servers, your secret files, your GUI-automation tools, your extra command rules. The [README](README.md#the-starting-camel-securityyaml) shows the recommended starting file — copy it and extend.
+2. **`<HERMES_HOME>/.env`** — switches and knobs (what's enabled, how strict), plus quick comma-list appends for the tool lists.
 
 Env switches use the `CAMEL_SECURITY_*` prefix; the legacy `SECURITY_GATE_*` prefix is still read as a fallback. Everything is read at process start — restart the gateway (`hermes gateway restart`) to apply changes.
 
@@ -13,7 +11,7 @@ Merging is **append-only**: your config *adds* recognition on top of the default
 
 ## Quick start
 
-A fresh install works with no configuration at all: the gate covers generic dangerous commands (git push, egress, exec, destructive ops, common secret files), and the quarantine + interpreter activate with two `.env` lines (see [README](README.md#install)). Add `camel-security.yaml` when you want the gate to know *your* environment:
+A fresh install works with no configuration at all: the gate covers generic dangerous commands (git push, egress, exec, destructive ops, common secret files), and the quarantine + interpreter activate with two `.env` lines (see [README](README.md#install)). Create `camel-security.yaml` from the README's recommended starting file, then teach the gate *your* environment — the full key set:
 
 ```yaml
 # <HERMES_HOME>/camel-security.yaml — site-specific recognition (append-only)

@@ -33,9 +33,9 @@ still read as a fallback):
                              '-' => NO no-cache categories (everything cacheable).
 
 Site-specific recognition (your MCP servers, secret files, GUI-automation tools,
-extra command rules) lives OUTSIDE the code: the shipped starter
-<plugin dir>/camel-security.yaml, the per-profile <HERMES_HOME>/camel-security.yaml,
-and CAMEL_SECURITY_{TAKEOVER,DESKTOP,EXEC,WEB_MCP}_TOOLS / _WEB_MCP_PREFIXES env
+extra command rules) lives OUTSIDE the code: <HERMES_HOME>/camel-security.yaml
+(recommended starting file in the README) plus
+CAMEL_SECURITY_{TAKEOVER,DESKTOP,EXEC,WEB_MCP}_TOOLS / _WEB_MCP_PREFIXES env
 appends — merged over the generic defaults by _rebuild_rules(). See CONFIGURATION.md.
 """
 from __future__ import annotations
@@ -301,9 +301,13 @@ def _re_ok(p: str) -> bool:
         return False
 
 
-def _read_rules_file(p: str) -> dict:
+def _user_rules() -> dict:
+    """<HERMES_HOME>/camel-security.yaml parsed to a dict — {} if absent/unreadable.
+    The README documents a recommended starting file."""
     try:
         import yaml
+        p = os.path.join(os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"),
+                         "camel-security.yaml")
         if not os.path.exists(p):
             return {}
         with open(p, encoding="utf-8") as f:
@@ -311,38 +315,6 @@ def _read_rules_file(p: str) -> dict:
         return d if isinstance(d, dict) else {}
     except Exception:
         return {}
-
-
-def _user_rules() -> dict:
-    """Two config layers, merged (lists concatenate, later file appends):
-    1. <plugin dir>/camel-security.yaml — the shipped starter (created from
-       camel-security.yaml.example by `hermes plugins install`; survives updates).
-    2. <HERMES_HOME>/camel-security.yaml — the per-profile user file.
-    Both optional; {} if neither exists / both unreadable."""
-    layers = [
-        _read_rules_file(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                      "camel-security.yaml")),
-        _read_rules_file(os.path.join(
-            os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes"),
-            "camel-security.yaml")),
-    ]
-    out: dict = {}
-    for layer in layers:
-        for k, v in layer.items():
-            if isinstance(v, list):
-                base = out.get(k)
-                out[k] = (base if isinstance(base, list) else []) + v
-            elif isinstance(v, dict):
-                base = out.get(k)
-                base = base if isinstance(base, dict) else {}
-                for kk, vv in v.items():
-                    if isinstance(vv, list):
-                        prev = base.get(kk)
-                        base[kk] = (prev if isinstance(prev, list) else []) + vv
-                out[k] = base
-            else:
-                out[k] = v
-    return out
 
 
 def _rebuild_rules() -> None:
