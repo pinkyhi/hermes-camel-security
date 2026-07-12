@@ -19,7 +19,17 @@
 | The op menu the agent sees | `interp.py` → `plan_execute` tool description string | Must be updated when ops change — the model can only plan with ops it knows |
 | Tests | `test_offline.py` | Offline, no network, faked ctx/backends |
 
-## Invariants — keep these true, whatever you add
+## Design invariants
+
+The §N markers in code comments refer to these (numbering follows the original design spec):
+
+- **§5 Capability model.** Every value carries `caps.sources ⊆ {owner, web, file:<path>, tool:<name>}`. Plan literals are `{owner}` (trusted — the planner only ever saw trusted input). `web_search`/`web_fetch` produce `{web}`. `q_extract`/`q_summarise` **inherit** their input's sources — an LLM pass does not launder taint. `$ref`s carry caps, so referencing can't strip them.
+- **§6 Sink policy (capability-aware).** Checked before every side effect: `send_owner` is always allowed (the owner is the safe sink); `send_other`/`egress` with any tainted arg is denied; `exec` with owner-only args runs frictionless, with tainted args is denied; tainted `write_file` is contained under `quarantine/`; genuinely ambiguous tainted action-sinks (e.g. `send_owner_actionable` — a drafted message the owner will act on) route to the human approval flow. Per-category override: `INTERP_SINK_<CATEGORY>=allow|deny|approve`.
+- **§7 No-raw-return invariant.** The executor returns only a sanitized status/result to the planner. This includes the **error channel**: once a run has touched tainted data, error details are withheld from the planner (full detail goes to the audit log) — an "error message" is otherwise a perfect exfiltration/reinjection channel.
+- **File provenance — the `quarantine/` location convention.** Tainted `write_file` output is forced under `<HERMES_HOME>/quarantine/`; the folder *is* the taint registry. Direct reads of quarantine paths (and of the audit logs themselves) by the top-level agent are plan-only; the `read_file` op re-taints their content.
+- **Fail-open for availability, fail-closed for policy.** An internal plugin error never breaks the agent's turn; an unknown tainted sink category denies by default.
+
+## Engineering invariants — keep these true, whatever you add
 
 1. **Fail-open for availability, fail-closed for policy.** A bug in the plugin must never break the agent's turn (wrap in `try/except`, return "allow + audit" on internal errors). But an *unknown tainted sink category* must deny — never add a "probably fine" default.
 2. **Q never cleans taint.** Any op that transforms data (`q_extract`, `filter`, a new `q_*` you add) must inherit/union its input caps. An LLM pass over web text is still web text.

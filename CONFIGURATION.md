@@ -2,67 +2,80 @@
 
 Everything site-specific is configuration — the code ships only **generic defaults** (dangerous-command rules, common secret files, firecrawl/searxng ingest prefixes). Two places to configure, both per Hermes profile:
 
-1. **`<HERMES_HOME>/camel-security.yaml`** — *recognition*: your MCP servers, your secret files, your GUI-automation tools, your extra command rules. The [README](README.md#the-starting-camel-securityyaml) shows the recommended starting file — copy it and extend.
+1. **`<HERMES_HOME>/camel-security.yaml`** — *recognition*: your MCP servers, your secret files, your GUI-automation tools, your extra command rules. The recommended starting file is below — copy it and extend.
 2. **`<HERMES_HOME>/.env`** — switches and knobs (what's enabled, how strict), plus quick comma-list appends for the tool lists.
 
 Env switches use the `CAMEL_SECURITY_*` prefix; the legacy `SECURITY_GATE_*` prefix is still read as a fallback. Everything is read at process start — restart the gateway (`hermes gateway restart`) to apply changes.
 
 Merging is **append-only**: your config *adds* recognition on top of the defaults, it never removes them. To make the gate *less* strict, don't edit lists — narrow `CAMEL_SECURITY_CATEGORIES` or set `CAMEL_SECURITY_NO_BLOCK=1` (audit-only). A broken config file or an invalid regex is skipped fail-open: defaults stay intact, the agent keeps working.
 
-## Quick start
+## The recommended starting `camel-security.yaml`
 
-A fresh install works with no configuration at all: the gate covers generic dangerous commands (git push, egress, exec, destructive ops, common secret files), and the quarantine + interpreter activate with two `.env` lines (see [README](README.md#install)). Create `camel-security.yaml` from the README's recommended starting file, then teach the gate *your* environment — the full key set:
+A fresh install works with no configuration at all: the gate covers generic dangerous commands (git push, egress, exec, destructive ops, common secret files), and the quarantine + interpreter activate with two `.env` lines (see [README](README.md#how-to-use-it)). Create `<HERMES_HOME>/camel-security.yaml` from this starting point — it covers common setups, every `[EXTENDABLE]` section shows what to add for *your* environment:
 
 ```yaml
 # <HERMES_HOME>/camel-security.yaml — site-specific recognition (append-only)
 
-# Your crown-jewel files, beyond the generic auth.json/id_rsa/.ssh/*.pem/*.key.
-# Regex fragments, matched inside terminal commands (cat/type/copy/... of these gates):
+# [EXTENDABLE] Your crown-jewel files, beyond the generic auth.json/id_rsa/.ssh/
+# *.pem/*.key. Regex fragments — terminal reads of these (cat/type/copy/...) prompt:
 secret_files:
-  - 'google_token'
-  - 'wallet\.dat'
+  - 'google_token'          # Google OAuth token caches
+  - 'google_client_secret'
+  - '\.codex'               # codex CLI auth
+  # - 'wallet\.dat'
 
-# Paths where writing is sensitive (write_file → approval; tainted plan writes → deny).
-# Regex fragments, appended to the built-in matcher:
+# [EXTENDABLE] Paths where writing is sensitive (write_file → approval; tainted
+# plan writes → DENIED). Regex fragments, appended to the built-in matcher:
 sensitive_paths:
-  - '\.kube[/\\]'
+  - '\.codex'
+  # - '\.kube[/\\]'
 
-# Your web-ingest MCP servers (anything that brings in EXTERNAL content: scraping,
-# RSS, mail...). Vendor prefix, so future tools of that server are covered too.
-# Quarantined while the 'web' toolset is (CAMEL_SECURITY_Q_TOOLSETS):
-web_mcp_prefixes:
-  - 'rss_'
-web_mcp_tools:          # or single tools by name
-  - 'fetch_page'
+# [EXTENDABLE] Your web-ingest MCP servers (anything that brings in EXTERNAL
+# content: scraping, RSS, mail...). Vendor prefix covers the server's current
+# and future tools. Quarantined while the 'web' toolset is (CAMEL_SECURITY_Q_TOOLSETS):
+web_mcp_prefixes: []
+  # - 'rss_'
+web_mcp_tools: []           # or single tools by bare name, e.g. 'fetch_page'
 
-# Your code-execution MCP tools (classified `exec`):
-exec_tools:
-  - 'run_sql'
+# [EXTENDABLE] Your code-execution MCP tools (classified `exec`):
+exec_tools: []
+  # - 'run_sql'
 
-# Your GUI-automation servers. Two categories, different strictness:
-# desktop_act — element-level automation (UIA-style); one approval per session.
+# [EXTENDABLE] GUI automation, strict tier: BLIND screen-coordinate tools
+# (PyAutoGUI-style). EVERY action re-prompts, approvals never cache. Only acting
+# tools — perception (screenshot) and teardown (stop) don't belong here:
+takeover_act_tools:
+  - click_element
+  - click_xy
+  - double_click
+  - right_click
+  - type_text
+  - press_key
+  - scroll
+  - move
+
+# [EXTENDABLE] GUI automation, softer tier: element-level (UIA-style) mutations —
+# one approval per session:
 desktop_act_tools:
   - invoke_element
   - set_text
-# takeover_act — blind screen-coordinate automation (PyAutoGUI-style);
-# EVERY action re-prompts, approvals never cache. List only acting tools —
-# perception (screenshot) and teardown (stop) don't belong here.
-takeover_act_tools:
-  - click_xy
-  - type_text
+  - select_element
+  - window_action
+  - launch_application
 
-# Your own terminal-command rules. Checked BEFORE the built-ins (yours win on
-# overlap). `category` can be an existing one or your own name — add new names
-# to CAMEL_SECURITY_CATEGORIES in .env, or they stay audit-only:
+# [EXTENDABLE] Your own terminal-command rules. Checked BEFORE the built-ins
+# (yours win on overlap). `category` = existing (push/egress/exec/secret_read/
+# destructive/config) or your own name — add new names to
+# CAMEL_SECURITY_CATEGORIES in .env to make them prompt, else audit-only:
 cmd_rules:
   - category: destructive
     pattern: '\bkubectl\s+(delete|drain)\b'
-  - category: egress
-    pattern: '\baws\s+s3\s+cp\b.*s3://'
+  # - category: egress
+  #   pattern: '\baws\s+s3\s+cp\b.*s3://'
 
-# Extra web-ingest tools for a built-in toolset (rarely needed):
-toolset_tools:
-  web: [my_search]
+# [EXTENDABLE] Extra web-ingest tools for a built-in toolset (rarely needed):
+toolset_tools: {}
+  # web: [my_search]
 ```
 
 Tool names are matched robustly against MCP naming shapes (`tool`, `server__tool`, `mcp_server_tool`) — list the **bare** tool name.

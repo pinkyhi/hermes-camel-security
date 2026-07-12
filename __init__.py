@@ -34,7 +34,7 @@ still read as a fallback):
 
 Site-specific recognition (your MCP servers, secret files, GUI-automation tools,
 extra command rules) lives OUTSIDE the code: <HERMES_HOME>/camel-security.yaml
-(recommended starting file in the README) plus
+(recommended starting file in CONFIGURATION.md) plus
 CAMEL_SECURITY_{TAKEOVER,DESKTOP,EXEC,WEB_MCP}_TOOLS / _WEB_MCP_PREFIXES env
 appends — merged over the generic defaults by _rebuild_rules(). See CONFIGURATION.md.
 """

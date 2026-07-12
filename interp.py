@@ -9,7 +9,7 @@ sink. Raw tainted values are NEVER returned to P — only a sanitized status (§
 Loaded as a sibling module by camel-security/__init__.py:register() (ONE plugin owns
 the indirect-injection-defense theme — gate + web quarantine + interpreter). Gated
 per profile by CAMEL_SECURITY_INTERPRETER=1 (tool hidden when off; legacy SECURITY_GATE_ prefix accepted).
-Design overview: README.md — the §N markers in comments refer to its Design section.
+Design overview: EXTENDING.md — the §N markers in comments refer to its Design invariants section.
 
 Env knobs (per profile .env):
   CAMEL_SECURITY_INTERPRETER=1  register/offer plan_execute (master switch)
